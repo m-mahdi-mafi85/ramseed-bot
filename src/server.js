@@ -259,3 +259,8 @@ process.on("SIGINT", async () => {
   await pool.end();
   server.close(() => process.exit(0));
 });
+
+bot.launch()
+  .then(() => console.log("Bot started"))
+  .catch(err => console.error("Bot launch error:", err));
+
