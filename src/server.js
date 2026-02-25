@@ -1,15 +1,57 @@
-require('dotenv').config()
-const { Telegraf, Markup } = require('telegraf')
-const { Pool } = require('pg')
+require("dotenv").config();
 
-const bot = new Telegraf(process.env.BOT_TOKEN)
+const express = require("express");
+const { Telegraf, Markup } = require("telegraf");
+const { Pool } = require("pg");
+
+/* ===========================
+   Basic Safety Checks
+=========================== */
+
+if (!process.env.BOT_TOKEN) {
+  console.error("BOT_TOKEN is missing");
+  process.exit(1);
+}
+
+if (!process.env.DATABASE_URL) {
+  console.error("DATABASE_URL is missing");
+  process.exit(1);
+}
+
+/* ===========================
+   Express HTTP Server (For Railway Health Check)
+=========================== */
+
+const app = express();
+
+app.get("/", (req, res) => {
+  res.status(200).send("Bot is alive");
+});
+
+const PORT = process.env.PORT || 3000;
+
+const server = app.listen(PORT, () => {
+  console.log("HTTP server running on port " + PORT);
+});
+
+/* ===========================
+   Database
+=========================== */
 
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
-  ssl: { rejectUnauthorized: false }
-})
+  ssl: { rejectUnauthorized: false },
+});
 
-/* -------------------- داده کامل استان و شهرستان -------------------- */
+/* ===========================
+   Telegram Bot
+=========================== */
+
+const bot = new Telegraf(process.env.BOT_TOKEN);
+
+/* ===========================
+   Provinces Data
+=========================== */
 
 const provinces = {
   "آذربایجان شرقی": ["تبریز","مراغه","مرند","میانه","اهر","سراب","بناب","ملکان","شبستر","کلیبر","هریس","عجب‌شیر","بستان‌آباد","ورزقان","خداآفرین","آذرشهر","اسکو","چاراویماق","هوراند"],
@@ -44,30 +86,33 @@ const provinces = {
   "همدان": ["همدان","ملایر","نهاوند","تویسرکان","اسدآباد","بهار","کبودرآهنگ","فامنین","رزن","درگزین"],
   "یزد": ["یزد","میبد","اردکان","بافق","مهریز","ابرکوه","تفت","خاتم","اشکذر","بهاباد","مروست"]
 }
-
-/* -------------------- ابزار کیبورد -------------------- */
+/* ===========================
+   Helpers
+=========================== */
 
 function buildKeyboard(arr, perRow = 3) {
-  const rows = []
+  const rows = [];
   for (let i = 0; i < arr.length; i += perRow) {
-    rows.push(arr.slice(i, i + perRow))
+    rows.push(arr.slice(i, i + perRow));
   }
-  return Markup.keyboard(rows).resize()
+  return Markup.keyboard(rows).resize();
 }
 
 function ageKeyboard() {
-  const ages = []
+  const ages = [];
   for (let i = 19; i <= 69; i++) {
-    ages.push(String(i))
+    ages.push(String(i));
   }
-  return buildKeyboard(ages, 4)
+  return buildKeyboard(ages, 4);
 }
 
 function normalizeNumber(input) {
-  return input.replace(/[۰-۹]/g, d => '۰۱۲۳۴۵۶۷۸۹'.indexOf(d)).trim()
+  return input.replace(/[۰-۹]/g, d => "۰۱۲۳۴۵۶۷۸۹".indexOf(d)).trim();
 }
 
-/* -------------------- سشن -------------------- */
+/* ===========================
+   Session Functions
+=========================== */
 
 async function ensureUser(id) {
   await pool.query(
@@ -75,15 +120,15 @@ async function ensureUser(id) {
      VALUES ($1)
      ON CONFLICT (telegram_user_id) DO NOTHING`,
     [id]
-  )
+  );
 }
 
 async function getSession(id) {
   const { rows } = await pool.query(
     `SELECT * FROM flow_sessions WHERE telegram_user_id = $1`,
     [id]
-  )
-  return rows[0]
+  );
+  return rows[0];
 }
 
 async function saveSession(id, step, state) {
@@ -94,62 +139,65 @@ async function saveSession(id, step, state) {
      DO UPDATE SET current_step = EXCLUDED.current_step,
                    state = EXCLUDED.state`,
     [id, step, state]
-  )
+  );
 }
 
 async function clearSession(id) {
   await pool.query(
     `DELETE FROM flow_sessions WHERE telegram_user_id = $1`,
     [id]
-  )
+  );
 }
 
-/* -------------------- جریان بات -------------------- */
+/* ===========================
+   Bot Flow
+=========================== */
 
 bot.start(async (ctx) => {
-  const id = ctx.from.id
-  await ensureUser(id)
-  await saveSession(id, 'ask_name', {})
-  ctx.reply('سلام 👋\nاسمت چیه؟', Markup.removeKeyboard())
-})
+  const id = ctx.from.id;
+  await ensureUser(id);
+  await saveSession(id, "ask_name", {});
+  ctx.reply("سلام 👋\nاسمت چیه؟", Markup.removeKeyboard());
+});
 
-bot.on('text', async (ctx) => {
-  const id = ctx.from.id
-  const text = ctx.message.text.trim()
+bot.on("text", async (ctx) => {
+  const id = ctx.from.id;
+  const text = ctx.message.text.trim();
 
   try {
-    const session = await getSession(id)
-    if (!session) return ctx.reply('اول /start رو بزن.')
+    const session = await getSession(id);
+    if (!session) return ctx.reply("اول /start رو بزن.");
 
-    const state = session.state || {}
-    const step = session.current_step
+    const state = session.state || {};
+    const step = session.current_step;
 
     switch (step) {
 
-      case 'ask_name':
-        state.name = text
-        await saveSession(id, 'ask_province', state)
-        return ctx.reply('از کدوم استانی؟', buildKeyboard(Object.keys(provinces), 2))
+      case "ask_name":
+        state.name = text;
+        await saveSession(id, "ask_province", state);
+        return ctx.reply("از کدوم استانی؟", buildKeyboard(Object.keys(provinces), 2));
 
-      case 'ask_province':
-        if (!provinces[text]) return ctx.reply('یکی از گزینه‌ها رو انتخاب کن.')
-        state.province = text
-        await saveSession(id, 'ask_city', state)
-        return ctx.reply('شهرت رو انتخاب کن:', buildKeyboard(provinces[text], 2))
+      case "ask_province":
+        if (!provinces[text])
+          return ctx.reply("یکی از گزینه‌ها رو انتخاب کن.");
+        state.province = text;
+        await saveSession(id, "ask_city", state);
+        return ctx.reply("شهرت رو انتخاب کن:", buildKeyboard(provinces[text], 2));
 
-      case 'ask_city':
+      case "ask_city":
         if (!provinces[state.province].includes(text))
-          return ctx.reply('از لیست انتخاب کن.')
-        state.city = text
-        await saveSession(id, 'ask_age', state)
-        return ctx.reply('چند سالته؟', ageKeyboard())
+          return ctx.reply("از لیست انتخاب کن.");
+        state.city = text;
+        await saveSession(id, "ask_age", state);
+        return ctx.reply("چند سالته؟", ageKeyboard());
 
-      case 'ask_age':
-        const age = Number(normalizeNumber(text))
+      case "ask_age":
+        const age = Number(normalizeNumber(text));
         if (isNaN(age) || age < 19 || age > 69)
-          return ctx.reply('سن معتبر انتخاب کن.')
-        state.age = age
-        await saveSession(id, 'confirm', state)
+          return ctx.reply("سن معتبر انتخاب کن.");
+        state.age = age;
+        await saveSession(id, "confirm", state);
         return ctx.reply(
 `اطلاعاتت:
 اسم: ${state.name}
@@ -158,44 +206,56 @@ bot.on('text', async (ctx) => {
 سن: ${state.age}
 
 تایید می‌کنی؟`,
-          buildKeyboard(['تایید ✅','اصلاح ❌'],1)
-        )
+          buildKeyboard(["تایید ✅", "اصلاح ❌"], 1)
+        );
 
-      case 'confirm':
-        if (text === 'تایید ✅') {
+      case "confirm":
+        if (text === "تایید ✅") {
           await pool.query(
             `INSERT INTO test_submissions(name, province, city, age)
              VALUES($1,$2,$3,$4)`,
             [state.name, state.province, state.city, state.age]
-          )
-          await clearSession(id)
-          return ctx.reply('ثبت شد ✅', Markup.removeKeyboard())
+          );
+          await clearSession(id);
+          return ctx.reply("ثبت شد ✅", Markup.removeKeyboard());
         }
 
-        if (text === 'اصلاح ❌') {
-          await saveSession(id, 'ask_name', {})
-          return ctx.reply('دوباره شروع کنیم.\nاسمت چیه؟', Markup.removeKeyboard())
+        if (text === "اصلاح ❌") {
+          await saveSession(id, "ask_name", {});
+          return ctx.reply("دوباره شروع کنیم.\nاسمت چیه؟", Markup.removeKeyboard());
         }
 
-        return ctx.reply('یکی از گزینه‌ها رو انتخاب کن.')
+        return ctx.reply("یکی از گزینه‌ها رو انتخاب کن.");
     }
 
   } catch (err) {
-    console.error(err)
-    ctx.reply('خطا در ذخیره اطلاعات ❌')
+    console.error(err);
+    ctx.reply("خطا در ذخیره اطلاعات ❌");
   }
-})
-
-bot.launch()
-console.log('Bot is running...')
-
-
-const express = require("express");
-const app = express();
-
-app.get("/", (req, res) => {
-  res.send("OK");
 });
 
-const PORT = process.env.PORT || 3000;
-app.listen(PORT);
+/* ===========================
+   Start Bot
+=========================== */
+
+bot.launch().then(() => {
+  console.log("Bot is running...");
+});
+
+/* ===========================
+   Graceful Shutdown (Important for Railway)
+=========================== */
+
+process.on("SIGTERM", async () => {
+  console.log("Shutting down...");
+  await bot.stop();
+  await pool.end();
+  server.close(() => process.exit(0));
+});
+
+process.on("SIGINT", async () => {
+  console.log("Interrupted");
+  await bot.stop();
+  await pool.end();
+  server.close(() => process.exit(0));
+});
