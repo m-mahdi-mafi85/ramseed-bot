@@ -244,7 +244,6 @@ bot.on("text", async (ctx) => {
     console.log("Bot launched successfully.");
   } catch (err) {
     console.error("Bot launch error:", err);
-    process.exit(1);
   }
 })();
 
