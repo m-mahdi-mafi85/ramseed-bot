@@ -188,3 +188,14 @@ bot.on('text', async (ctx) => {
 
 bot.launch()
 console.log('Bot is running...')
+
+
+const express = require("express");
+const app = express();
+
+app.get("/", (req, res) => {
+  res.send("OK");
+});
+
+const PORT = process.env.PORT || 3000;
+app.listen(PORT);
