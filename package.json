@@ -1,0 +1,16 @@
+{
+  "name": "ramseed-bot",
+  "version": "1.0.0",
+  "main": "src/server.js",
+  "type": "commonjs",
+  "scripts": {
+    "start": "node src/server.js"
+  },
+  "dependencies": {
+    "dotenv": "^17.3.1",
+    "express": "^5.2.1",
+    "express-rate-limit": "^8.2.1",
+    "pg": "^8.18.0",
+    "telegraf": "^4.16.3"
+  }
+}
