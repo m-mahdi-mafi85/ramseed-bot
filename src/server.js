@@ -5,7 +5,7 @@ const { Telegraf, Markup } = require("telegraf");
 const { Pool } = require("pg");
 
 /* ===========================
-   Basic Safety Checks
+   ENV CHECK
 =========================== */
 
 if (!process.env.BOT_TOKEN) {
@@ -19,7 +19,7 @@ if (!process.env.DATABASE_URL) {
 }
 
 /* ===========================
-   Express HTTP Server (For Railway Health Check)
+   EXPRESS SERVER
 =========================== */
 
 const app = express();
@@ -35,7 +35,7 @@ const server = app.listen(PORT, () => {
 });
 
 /* ===========================
-   Database
+   DATABASE
 =========================== */
 
 const pool = new Pool({
@@ -44,13 +44,13 @@ const pool = new Pool({
 });
 
 /* ===========================
-   Telegram Bot
+   TELEGRAM BOT
 =========================== */
 
 const bot = new Telegraf(process.env.BOT_TOKEN);
 
 /* ===========================
-   Provinces Data
+   PROVINCES
 =========================== */
 
 const provinces = {
@@ -86,8 +86,9 @@ const provinces = {
   "همدان": ["همدان","ملایر","نهاوند","تویسرکان","اسدآباد","بهار","کبودرآهنگ","فامنین","رزن","درگزین"],
   "یزد": ["یزد","میبد","اردکان","بافق","مهریز","ابرکوه","تفت","خاتم","اشکذر","بهاباد","مروست"]
 }
+
 /* ===========================
-   Helpers
+   HELPERS
 =========================== */
 
 function buildKeyboard(arr, perRow = 3) {
@@ -111,7 +112,7 @@ function normalizeNumber(input) {
 }
 
 /* ===========================
-   Session Functions
+   SESSION FUNCTIONS
 =========================== */
 
 async function ensureUser(id) {
@@ -150,14 +151,14 @@ async function clearSession(id) {
 }
 
 /* ===========================
-   Bot Flow
+   BOT FLOW
 =========================== */
 
 bot.start(async (ctx) => {
   const id = ctx.from.id;
   await ensureUser(id);
   await saveSession(id, "ask_name", {});
-  ctx.reply("سلام 👋\nاسمت چیه؟", Markup.removeKeyboard());
+  return ctx.reply("سلام 👋\nاسمت چیه؟", Markup.removeKeyboard());
 });
 
 bot.on("text", async (ctx) => {
@@ -176,14 +177,13 @@ bot.on("text", async (ctx) => {
       case "ask_name":
         state.name = text;
         await saveSession(id, "ask_province", state);
-        return ctx.reply("از کدوم استانی؟", buildKeyboard(Object.keys(provinces), 2));
+        return ctx.reply("استانت؟", buildKeyboard(Object.keys(provinces), 2));
 
       case "ask_province":
-        if (!provinces[text])
-          return ctx.reply("یکی از گزینه‌ها رو انتخاب کن.");
+        if (!provinces[text]) return ctx.reply("از لیست انتخاب کن.");
         state.province = text;
         await saveSession(id, "ask_city", state);
-        return ctx.reply("شهرت رو انتخاب کن:", buildKeyboard(provinces[text], 2));
+        return ctx.reply("شهرت؟", buildKeyboard(provinces[text], 2));
 
       case "ask_city":
         if (!provinces[state.province].includes(text))
@@ -195,17 +195,16 @@ bot.on("text", async (ctx) => {
       case "ask_age":
         const age = Number(normalizeNumber(text));
         if (isNaN(age) || age < 19 || age > 69)
-          return ctx.reply("سن معتبر انتخاب کن.");
+          return ctx.reply("سن معتبر وارد کن.");
         state.age = age;
         await saveSession(id, "confirm", state);
         return ctx.reply(
-`اطلاعاتت:
+`تایید می‌کنی؟
+
 اسم: ${state.name}
 استان: ${state.province}
 شهر: ${state.city}
-سن: ${state.age}
-
-تایید می‌کنی؟`,
+سن: ${state.age}`,
           buildKeyboard(["تایید ✅", "اصلاح ❌"], 1)
         );
 
@@ -229,38 +228,40 @@ bot.on("text", async (ctx) => {
     }
 
   } catch (err) {
-    console.error(err);
-    ctx.reply("خطا در ذخیره اطلاعات ❌");
+    console.error("Flow error:", err);
+    return ctx.reply("خطا ❌");
   }
 });
 
 /* ===========================
-   Start Bot
+   START BOT SAFELY
 =========================== */
 
-bot.launch().then(() => {
-  console.log("Bot is running...");
-});
+(async () => {
+  try {
+    console.log("Starting bot...");
+    await bot.launch();
+    console.log("Bot launched successfully.");
+  } catch (err) {
+    console.error("Bot launch error:", err);
+    process.exit(1);
+  }
+})();
 
 /* ===========================
-   Graceful Shutdown (Important for Railway)
+   GRACEFUL SHUTDOWN
 =========================== */
 
-process.on("SIGTERM", async () => {
-  console.log("Shutting down...");
+process.once("SIGTERM", async () => {
+  console.log("SIGTERM received");
   await bot.stop();
   await pool.end();
   server.close(() => process.exit(0));
 });
 
-process.on("SIGINT", async () => {
-  console.log("Interrupted");
+process.once("SIGINT", async () => {
+  console.log("SIGINT received");
   await bot.stop();
   await pool.end();
   server.close(() => process.exit(0));
 });
-
-bot.launch()
-  .then(() => console.log("Bot started"))
-  .catch(err => console.error("Bot launch error:", err));
-
